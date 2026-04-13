@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Арканоид - сбить кирпичи</title>
+    <style>
+        * {
+            user-select: none;
+            touch-action: manipulation;
+        }
+        body {
+            background: #0a0f2a;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 10px;
+            font-family: 'Courier New', monospace;
+        }
+        .game-container {
+            background: #1e1e2e;
+            padding: 10px;
+            border-radius: 20px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+        }
+        canvas {
+            display: block;
+            margin: 0 auto;
+            border-radius: 10px;
+            box-shadow: 0 0 0 3px #ffaa44;
+            background: #000;
+            cursor: pointer;
+        }
+        .info {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 12px;
+            color: #ffdd99;
+            font-weight: bold;
+            font-size: 1.2rem;
+            padding: 0 10px;
+        }
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-top: 15px;
+        }
+        button {
+            background: #ffaa44;
+            border: none;
+            font-size: 1.5rem;
+            font-weight: bold;
+            padding: 10px 20px;
+            border-radius: 40px;
+            width: 80px;
+            box-shadow: 0 4px 0 #a05e15;
+            transition: 0.05s linear;
+            touch-action: manipulation;
+            cursor: pointer;
+        }
+        button:active {
+            transform: translateY(2px);
+            box-shadow: 0 1px 0 #a05e15;
+        }
+        .restart {
+            background: #d64545;
+            color: white;
+            width: auto;
+            padding: 8px 18px;
+            font-size: 1rem;
+        }
+        @media (max-width: 600px) {
+            button { width: 70px; font-size: 1.3rem; }
+            .info { font-size: 1rem; }
+        }
+    </style>
+</head>
+<body>
+<div>
+    <div class="game-container">
+        <canvas id="gameCanvas" width="400" height="550"></canvas>
+        <div class="info">
+            <span>🏆 Счёт: <span id="scoreValue">0</span></span>
+            <span>💖 Жизни: <span id="livesValue">3</span></span>
+        </div>
+        <div class="controls">
+            <button id="leftBtn">◀ ЛЕВО</button>
+            <button id="rightBtn">ПРАВО ▶</button>
+        </div>
+        <div style="text-align: center; margin-top: 10px;">
+            <button id="restartBtn" class="restart">🔄 Новая игра</button>
+        </div>
+        <div style="text-align: center; margin-top: 8px; font-size: 12px; color: #aaa;">
+            ← →  или кнопки
+        </div>
+    </div>
+</div>
+
+<script>
+    (function(){
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreSpan = document.getElementById('scoreValue');
+        const livesSpan = document.getElementById('livesValue');
+
+        const W = 400, H = 550;
+        // Платформа
+        const PADDLE_WIDTH = 70;
+        const PADDLE_HEIGHT = 12;
+        let paddleX = (W - PADDLE_WIDTH) / 2;
+        // Мяч
+        let ball = {
+            x: W/2,
+            y: H - 50,
+            dx: 2.2,
+            dy: -2.8,
+            radius: 6
+        };
+        // Кирпичи
+        const BRICK_ROWS = 5;
+        const BRICK_COLS = 7;
+        const BRICK_GAP = 2;
+        const BRICK_WIDTH = (W - (BRICK_COLS+1)*BRICK_GAP) / BRICK_COLS;
+        const BRICK_HEIGHT = 18;
+        let bricks = [];
+        let score = 0;
+        let lives = 3;
+        let gameRunning = true;
+        let animationId = null;
+
+        // Инициализация кирпичей
+        function initBricks() {
+            bricks = [];
+            for (let row = 0; row < BRICK_ROWS; row++) {
+                bricks[row] = [];
+                for (let col = 0; col < BRICK_COLS; col++) {
+                    bricks[row][col] = { active: true };
+                }
+            }
+        }
+
+        function resetGame() {
+            gameRunning = true;
+            score = 0;
+            lives = 3;
+            scoreSpan.innerText = score;
+            livesSpan.innerText = lives;
+            paddleX = (W - PADDLE_WIDTH) / 2;
+            ball.x = W/2;
+            ball.y = H - 50;
+            ball.dx = 2.2 * (Math.random() > 0.5 ? 1 : -1);
+            ball.dy = -2.8;
+            initBricks();
+            if (animationId) cancelAnimationFrame(animationId);
+            animationId = requestAnimationFrame(gameLoop);
+        }
+
+        // Столкновения с кирпичами
+        function handleBrickCollision() {
+            for (let row = 0; row < BRICK_ROWS; row++) {
+                for (let col = 0; col < BRICK_COLS; col++) {
+                    if (bricks[row][col].active) {
+                        let brickX = col * (BRICK_WIDTH + BRICK_GAP) + BRICK_GAP;
+                        let brickY = row * (BRICK_HEIGHT + BRICK_GAP) + BRICK_GAP + 30; // отступ сверху
+                        if (ball.x + ball.radius > brickX && ball.x - ball.radius < brickX + BRICK_WIDTH &&
+                            ball.y + ball.radius > brickY && ball.y - ball.radius < brickY + BRICK_HEIGHT) {
+                            // Столкновение: убрать кирпич, увеличить счёт, изменить направление
+                            bricks[row][col].active = false;
+                            score += 10;
+                            scoreSpan.innerText = score;
+                            // Определяем сторону столкновения
+                            let overlapLeft = (ball.x + ball.radius) - brickX;
+                            let overlapRight = (brickX + BRICK_WIDTH) - (ball.x - ball.radius);
+                            let overlapTop = (ball.y + ball.radius) - brickY;
+                            let overlapBottom = (brickY + BRICK_HEIGHT) - (ball.y - ball.radius);
+                            let minOverlap = Math.min(overlapLeft, overlapRight, overlapTop, overlapBottom);
+                            if (minOverlap === overlapLeft || minOverlap === overlapRight) {
+                                ball.dx = -ball.dx;
+                            } else {
+                                ball.dy = -ball.dy;
+                            }
+                            return; // за раз только один кирпич
+                        }
+                    }
+                }
+            }
+        }
+
+        function update() {
+            if (!gameRunning) return;
+
+            // Движение мяча
+            ball.x += ball.dx;
+            ball.y += ball.dy;
+
+            // Стены
+            if (ball.x - ball.radius <= 0 || ball.x + ball.radius >= W) ball.dx = -ball.dx;
+            if (ball.y - ball.radius <= 0) ball.dy = -ball.dy;
+            // Нижняя граница — потеря жизни
+            if (ball.y + ball.radius >= H) {
+                lives--;
+                livesSpan.innerText = lives;
+                if (lives <= 0) {
+                    gameRunning = false;
+                    return;
+                } else {
+                    // Перезапуск мяча и платформы
+                    ball.x = W/2;
+                    ball.y = H - 50;
+                    ball.dx = 2.2 * (Math.random() > 0.5 ? 1 : -1);
+                    ball.dy = -2.8;
+                    paddleX = (W - PADDLE_WIDTH) / 2;
+                }
+            }
+
+            // Платформа
+            let paddleTop = H - PADDLE_HEIGHT - 5;
+            if (ball.y + ball.radius >= paddleTop && ball.y - ball.radius <= paddleTop + PADDLE_HEIGHT &&
+                ball.x + ball.radius >= paddleX && ball.x - ball.radius <= paddleX + PADDLE_WIDTH) {
+                // Отскок с учётом места удара по платформе
+                let hitPos = (ball.x - paddleX) / PADDLE_WIDTH; // 0..1
+                let angle = (hitPos - 0.5) * 1.2; // -0.6..0.6
+                let speed = Math.hypot(ball.dx, ball.dy);
+                ball.dx = Math.sin(angle) * speed;
+                ball.dy = -Math.cos(angle) * speed;
+                if (Math.abs(ball.dx) < 1.2) ball.dx = ball.dx > 0 ? 1.2 : -1.2;
+                ball.dy = -Math.abs(ball.dy);
+            }
+
+            // Столкновение с кирпичами
+            handleBrickCollision();
+
+            // Проверка победы (все кирпичи уничтожены)
+            let allCleared = true;
+            for (let row = 0; row < BRICK_ROWS; row++) {
+                for (let col = 0; col < BRICK_COLS; col++) {
+                    if (bricks[row][col].active) {
+                        allCleared = false;
+                        break;
+                    }
+                }
+            }
+            if (allCleared) {
+                gameRunning = false;
+            }
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, W, H);
+            // Фон
+            ctx.fillStyle = "#111122";
+            ctx.fillRect(0, 0, W, H);
+            
+            // Кирпичи
+            for (let row = 0; row < BRICK_ROWS; row++) {
+                for (let col = 0; col < BRICK_COLS; col++) {
+                    if (bricks[row][col].active) {
+                        let brickX = col * (BRICK_WIDTH + BRICK_GAP) + BRICK_GAP;
+                        let brickY = row * (BRICK_HEIGHT + BRICK_GAP) + BRICK_GAP + 30;
+                        // Цвета по рядам
+                        let colors = ["#ff6666", "#ffaa66", "#ffff66", "#66ff66", "#66aaff"];
+                        ctx.fillStyle = colors[row % colors.length];
+                        ctx.fillRect(brickX, brickY, BRICK_WIDTH, BRICK_HEIGHT);
+                        ctx.strokeStyle = "#000000";
+                        ctx.strokeRect(brickX, brickY, BRICK_WIDTH, BRICK_HEIGHT);
+                    }
+                }
+            }
+            
+            // Платформа
+            ctx.fillStyle = "#ffcc44";
+            ctx.shadowBlur = 4;
+            ctx.fillRect(paddleX, H - PADDLE_HEIGHT - 5, PADDLE_WIDTH, PADDLE_HEIGHT);
+            ctx.fillStyle = "#ffaa22";
+            ctx.fillRect(paddleX+5, H - PADDLE_HEIGHT - 3, PADDLE_WIDTH-10, 4);
+            
+            // Мяч
+            ctx.fillStyle = "#ffffff";
+            ctx.beginPath();
+            ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI*2);
+            ctx.fill();
+            ctx.fillStyle = "#aaaaff";
+            ctx.beginPath();
+            ctx.arc(ball.x-1, ball.y-1, 2, 0, Math.PI*2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            
+            // Сообщение о конце
+            if (!gameRunning) {
+                ctx.font = "bold 24monospace";
+                ctx.fillStyle = "#ffaa55";
+                if (lives <= 0) {
+                    ctx.fillText("GAME OVER", W/2-85, H/2-30);
+                } else if (score === BRICK_ROWS * BRICK_COLS * 10) {
+                    ctx.fillText("YOU WIN!", W/2-60, H/2-30);
+                }
+                ctx.font = "16monospace";
+                ctx.fillStyle = "#ddd";
+                ctx.fillText("Нажми «Новая игра»", W/2-80, H/2+20);
+            }
+        }
+
+        // Управление
+        function moveLeft() {
+            if (!gameRunning) return;
+            paddleX = Math.max(0, paddleX - 25);
+        }
+        function moveRight() {
+            if (!gameRunning) return;
+            paddleX = Math.min(W - PADDLE_WIDTH, paddleX + 25);
+        }
+
+        // Обработчики
+        document.getElementById('leftBtn').addEventListener('click', (e) => {
+            e.preventDefault();
+            moveLeft();
+        });
+        document.getElementById('rightBtn').addEventListener('click', (e) => {
+            e.preventDefault();
+            moveRight();
+        });
+        document.getElementById('restartBtn').addEventListener('click', () => {
+            resetGame();
+        });
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft') {
+                e.preventDefault();
+                moveLeft();
+            } else if (e.key === 'ArrowRight') {
+                e.preventDefault();
+                moveRight();
+            }
+        });
+
+        function gameLoop() {
+            update();
+            draw();
+            animationId = requestAnimationFrame(gameLoop);
+        }
+
+        resetGame();
+    })();
+</script>
+</body>
+</html>
